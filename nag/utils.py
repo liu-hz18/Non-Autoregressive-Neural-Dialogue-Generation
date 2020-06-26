@@ -40,7 +40,7 @@ class PadCollate(object):
         return self.pad_collate(batch)
 
 
-def summary(model, file=sys.stderr):
+def summary(model, file=sys.stderr, type_size=4):  # float32
     def repr(model):
         from functools import reduce
         from torch.nn.modules.module import _addindent
@@ -78,6 +78,7 @@ def summary(model, file=sys.stderr):
     string, count = repr(model)
     if file is not None:
         print(string, file=file)
+        print('memory use ~ {:4f}MiB', count * type_size * 2 / 1000 / 1000)
     return count
 
 

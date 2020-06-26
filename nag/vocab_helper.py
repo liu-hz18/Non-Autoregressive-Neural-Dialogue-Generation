@@ -10,7 +10,8 @@ EOS_TOKEN = '<eos>'
 
 
 class VocabBulider(object):
-    def __init__(self, src_dir, src_files: list, vocab_file=None, min_count=5, ignore_unk_error=False):
+    def __init__(self, src_dir, src_files: list, vocab_file=None, min_count=5,
+                 update=False, ignore_unk_error=False):
         super(VocabBulider, self).__init__()
         self.src_files = src_files
         self.src_dir = src_dir
@@ -18,7 +19,7 @@ class VocabBulider(object):
         self.vocab2id = {}
         self.vocab_file = vocab_file
         self.save_path = os.path.join(self.src_dir, self.vocab_file)
-        if os.path.exists(self.save_path) and os.path.getsize(self.save_path) > 0:
+        if os.path.exists(self.save_path) and os.path.getsize(self.save_path) > 0 and not update:
             self.id2vocab = []
             self._read_vocab(self.vocab_file)
         else:

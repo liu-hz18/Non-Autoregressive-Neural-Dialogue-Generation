@@ -17,15 +17,15 @@ class LogManager(object):
         self.ckpt_path_name = os.path.join(self.save_dir, model_name)
         self.log_file_name = os.path.join(self.save_dir, log_file_name)
 
-        # logging.basicConfig(level=logging.INFO,
-        #                     format='%(asctime)s-%(name)s-%(levelname)s-%(message)s')
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s-%(name)s-%(levelname)s-%(message)s')
         self.logger = logging.getLogger(model_name)
         console_handle = logging.StreamHandler()
         console_handle.setLevel(logging.INFO)
         file_handle = logging.FileHandler(self.log_file_name, 'w', encoding='utf-8')
         file_handle.setLevel(logging.INFO)
-        self.logger.addHandler(console_handle)
-        # self.logger.addHandler(file_handle)
+        # self.logger.addHandler(console_handle)
+        self.logger.addHandler(file_handle)
 
     def log(self, step, epoch, model, value=None, info='', is_train=True):
         if is_train:

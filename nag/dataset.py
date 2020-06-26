@@ -4,6 +4,9 @@ import torch
 from torch.utils.data import Dataset
 from nltk.tokenize import word_tokenize
 
+SOS_ID = 2
+EOS_ID = 3
+
 
 class OpenSubDataset(Dataset):
 
@@ -36,8 +39,8 @@ class OpenSubDataset(Dataset):
         show_name = file_name.split('.')[0]
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in tqdm(f.readlines(), desc=f'reading: {show_name}'):
-                sen = torch.LongTensor(list(map(lambda x: self.vocab_bulider[x], \
-                                            word_tokenize(line.strip()))))
+                sen = torch.LongTensor([SOS_ID] + list(map(lambda x: self.vocab_bulider[x], \
+                                                       word_tokenize(line.strip()))) + [EOS_ID])
                 sentences.append(sen)
         return sentences
 
@@ -83,8 +86,8 @@ class IMSDBDataset(Dataset):
         sentences = []
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in tqdm(f.readlines(), desc=f'reading: {file_name}'):
-                sen = torch.LongTensor(list(map(lambda x: self.vocab_bulider[x], \
-                                            line.strip().split())))
+                sen = torch.LongTensor([SOS_ID] + list(map(lambda x: self.vocab_bulider[x], \
+                                                       line.strip().split())) + [EOS_ID])
                 sentences.append(sen)
         return sentences
 

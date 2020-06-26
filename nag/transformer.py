@@ -276,9 +276,10 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(self, embedding, d_tar, d_src, nhead, position_encoding=False,
                  dim_feedforward=2048, dropout=0.1, activation="relu",
                  rezero=False, max_sent_length=512, relative_clip=4,
-                 layer_norm=None, gumbels=False, device=None):
+                 gumbels=False, device=None):
         super(TransformerDecoderLayer, self).__init__()
         self.position_encoding = position_encoding
+
         if position_encoding:
             self.position_encoding_layer = PositionalEncoding(d_tar, max_len=max_sent_length, device=device)
 
@@ -311,9 +312,6 @@ class TransformerDecoderLayer(nn.Module):
             FeedForward(d_tar, dim_feedforward),
             d_tar, dropout, rezero=rezero)
 
-        if layer_norm:
-            self.layer_norm = nn.LayerNorm(d_tar)
-
     def forward(self, tgt, src, embedding, mask_src=None, mask_tar=None):
         tgt = self.vocab_attn_layer(tgt, tgt, embedding)  # B x l_tar x d_tar
         tgt = self.self_attn(tgt, tgt, tgt, tgt, mask_tar)  # B x l_tar x d_tar
@@ -324,8 +322,6 @@ class TransformerDecoderLayer(nn.Module):
             tgt = self.pos_selfattn(tgt, tgt, tgt, tgt, mask_tar)  # B x l_tar x d_tar
         tgt = self.src_attn(tgt, tgt, src, src, mask_src)  # B x l_tar x d_tar
         out = self.feedforward(tgt, tgt)  # B x l_tar x d_tar
-        if self.layer_norm:
-            out = self.layer_norm(out)
         return out  # B x l_tar x d_tar
 
 

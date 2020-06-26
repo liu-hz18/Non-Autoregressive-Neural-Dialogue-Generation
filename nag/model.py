@@ -14,9 +14,10 @@ class NAGModel(nn.Module):
     def __init__(self, vocab_size, embed_size, nhead=8, n_encoder_layers=6,
                  n_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  rezero=False, gumbels=False, device=None,
-                 min_length_change=-20, max_length_change=20):
+                 min_length_change=-20, max_length_change=20,
+                 pos_embedding_perlayer=False):
         super(NAGModel, self).__init__()
-        self.net_name = 'No-AutoRegressive'
+        self.net_name = 'No-AutoRegressive Transformer Dialogue Generation'
         self.dropout = dropout
         self.embed_size = embed_size
         self.embedding = nn.Embedding(vocab_size, embed_size)
@@ -35,8 +36,8 @@ class NAGModel(nn.Module):
 
         decoder_layer = TransformerDecoderLayer(self.embedding, embed_size, embed_size, nhead,
                                                 dim_feedforward=dim_feedforward, dropout=dropout,
-                                                layer_norm=True, rezero=rezero, gumbels=gumbels,
-                                                position_encoding=False, device=device)
+                                                rezero=rezero, gumbels=gumbels, device=device,
+                                                position_encoding=pos_embedding_perlayer)
         self.decoder = TransformerDecoder(decoder_layer, n_decoder_layers)
 
         self.mlp = nn.Linear(embed_size, vocab_size)
@@ -60,7 +61,7 @@ class NAGModel(nn.Module):
     def sample(self, niter=10, seq_length=50):
         print('device: ', self.device)
         test_input = torch.zeros(32, seq_length).long().to(self.device)  # B x L
-        summary(self)
+        summary(self, type_size=4)
         print('Input: (B x src_len)(long)', test_input.shape, type(test_input))
         for i in range(niter):
             test_output, out_lengths = self.forward(test_input, tgt_length=-1)
