@@ -107,6 +107,7 @@ def eval(epoch, model, dataloader):
                 avg_length = torch.mean(torch.argmax(delta_length, dim=-1).float()) + max(tgt_lens) - 20
                 mylogger.log(i, epoch, model, value=0, info=f'BLEU: {avg_bleu:.6f} | avg_length: {avg_length:.1f}', is_train=False)
                 bleu_score = 0.
+        show_gen_seq(src, out_seqs, tgt, vocab_bulider)
 
 
 def run_model(model, train_loader, eval_loader, niter, criterionM, criterionL, optimizer, scheduler):
@@ -116,6 +117,19 @@ def run_model(model, train_loader, eval_loader, niter, criterionM, criterionL, o
         train(i, model, train_loader, criterionM, criterionL, optimizer)
         eval(i, model, eval_loader)
         scheduler.step()
+
+
+def show_gen_seq(batch_in_seqs, batch_out_seqs, groud_truth, vocab_bulider):
+    def convert_ids_to_seq(id_seq, vocab_bulider):
+        return [vocab_bulider[idx] for idx in id_seq]
+    for in_id, out_id, gold_id in zip(batch_in_seqs, batch_out_seqs, groud_truth):
+        in_seq = convert_ids_to_seq(in_id, vocab_bulider)
+        out_seq = convert_ids_to_seq(out_id, vocab_bulider)
+        gold_seq = convert_ids_to_seq(gold_id, vocab_bulider)
+        print('-' * 40)
+        print('=>', in_seq)
+        print('==', out_seq)
+        print('<=:', gold_seq)
 
 
 if __name__ == '__main__':
@@ -143,15 +157,15 @@ if __name__ == '__main__':
 
     bleu_metirc = BLEUMetric(vocab_bulider.id2vocab, ignore_smoothing_error=True)
 
-    # opensub_file_name_list = ['opensub_pair_train', 'opensub_pair_dev', 'opensub_pair_test']
-    # opensub_dataset = OpenSubDataset(
-    #     data_dir='./data/opensubtitles', vocab_bulider=vocab_bulider,
-    #     file_name_list=opensub_file_name_list, unk_token=None)
-    # use dataset in paper ''
-    opensub_file_name_list = ['dialogue_length3_6']
+    opensub_file_name_list = ['opensub_pair_train', 'opensub_pair_dev', 'opensub_pair_test']
     opensub_dataset = OpenSubDataset(
         data_dir='./data/opensubtitles', vocab_bulider=vocab_bulider,
-        file_name_list=opensub_file_name_list, unk_token='UNknown')
+        file_name_list=opensub_file_name_list, unk_token=None)
+    # use dataset in paper ''
+    # opensub_file_name_list = ['dialogue_length3_6']
+    # opensub_dataset = OpenSubDataset(
+    #     data_dir='./data/opensubtitles', vocab_bulider=vocab_bulider,
+    #     file_name_list=opensub_file_name_list, unk_token='UNknown')
     print(opensub_dataset.sample())
     opensub_dataloader = DataLoader(
         opensub_dataset, batch_size=opt.batchsize,
