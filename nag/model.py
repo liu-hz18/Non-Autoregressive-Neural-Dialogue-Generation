@@ -1,4 +1,3 @@
-import os
 import math
 import torch
 from torch import nn
@@ -15,7 +14,7 @@ class NAGModel(nn.Module):
                  n_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  rezero=False, gumbels=False, device=None,
                  min_length_change=-20, max_length_change=20,
-                 pos_embedding_perlayer=False):
+                 use_pos_embedding=False, use_pos_attn=False, use_vocab_attn=False):
         super(NAGModel, self).__init__()
         self.net_name = 'No-AutoRegressive Transformer Dialogue Generation'
         self.dropout = dropout
@@ -37,7 +36,8 @@ class NAGModel(nn.Module):
         decoder_layer = TransformerDecoderLayer(self.embedding, embed_size, embed_size, nhead,
                                                 dim_feedforward=dim_feedforward, dropout=dropout,
                                                 rezero=rezero, gumbels=gumbels, device=device,
-                                                position_encoding=pos_embedding_perlayer)
+                                                position_encoding=use_pos_embedding,
+                                                use_pos_attn=use_pos_attn, use_vocab_attn=use_vocab_attn)
         self.decoder = TransformerDecoder(decoder_layer, n_decoder_layers)
 
         self.mlp = nn.Linear(embed_size, vocab_size)
@@ -53,7 +53,7 @@ class NAGModel(nn.Module):
         embeded = self.pos_encoder(embeded)  # B x L x E
         encoder_output = self.encoder(embeded)  # B x L x E
         decoder_input, delta_length = self.length_predictor(encoder_output, tgt_length)  # B x L x E
-        decoder_out = self.decoder(decoder_input, encoder_output, self.embedding.weight.detach())[-1]
+        _, decoder_out = self.decoder(decoder_input, encoder_output, self.embedding.weight.detach())
         out = self.mlp(decoder_out)
         out = self.soft_max(out).permute(0, 2, 1)
         return out, delta_length
@@ -67,7 +67,7 @@ class NAGModel(nn.Module):
             test_output, out_lengths = self.forward(test_input, tgt_length=-1)
         print('Output: (B x tgt_len x V)(float), (B x 1)(long)', test_output.shape, type(test_output), out_lengths.shape)
         # plot graph
-        from torchviz import make_dot
-        test_output, out_lengths = self.forward(test_input, tgt_length=-1)
-        g = make_dot((test_output, out_lengths), params=dict(self.named_parameters()))
-        g.render(os.path.join('.', self.net_name), view=False)
+        # from torchviz import make_dot
+        # test_output, out_lengths = self.forward(test_input, tgt_length=-1)
+        # g = make_dot((test_output, out_lengths), params=dict(self.named_parameters()))
+        # g.render(os.path.join('.', self.net_name), view=False)

@@ -116,7 +116,7 @@ class MultiHeadAttention(nn.Module):
     '''MultiHeadAttention with relative-position-encoding'''
     def __init__(self, d_k, d_q, d_v, d_key, d_value, nhead=8, dropout=0., bias=True,
                  activation=F.relu, relative=True, max_relative_position=4, gumbels=False,
-                 device=None):
+                 device=None, use_wo=True):
         super(MultiHeadAttention, self).__init__()
         self.nhead = nhead
         self.head_dim_key = d_key // nhead
@@ -127,13 +127,15 @@ class MultiHeadAttention(nn.Module):
         assert self.head_dim_value * nhead == d_value, "d_value must be divisible by nhead"
         self.activation = activation
         self.relative = relative
+        self.use_wo = use_wo
         if relative:
             self.relative_position_k = RelativePosition(self.head_dim_key, max_relative_position, device)
             self.relative_position_v = RelativePosition(self.head_dim_value, max_relative_position, device)
         self.w_q = nn.Linear(d_q, d_key, bias)
         self.w_k = nn.Linear(d_k, d_key, bias)
         self.w_v = nn.Linear(d_v, d_value, bias)
-        self.w_o = nn.Linear(d_value, d_key, bias)
+        if use_wo:
+            self.w_o = nn.Linear(d_value, d_key, bias)
         if gumbels:
             self.soft_max = GumbelSoftmax(dim=-1)
         else:
@@ -198,7 +200,8 @@ class MultiHeadAttention(nn.Module):
             y = self._scaled_dot_product_attn(q, k, v, mask)
         y = self._scaled_dot_product_attn(q, k, v, mask)
         y = self._reshape_from_batches(y)
-        y = self.w_o(y)
+        if self.use_wo:
+            y = self.w_o(y)
         if self.activation is not None:
             y = self.activation(y)
         return y
@@ -272,37 +275,98 @@ class HighwayBlock(nn.Module):
             return self.layernorm(x * g + self.dropout(self.layer(*param, **kwargs)) * (1 - g))
 
 
+class TransformerEncoderLayer(nn.Module):
+
+    def __init__(self, embedding, d_src, nhead, dropout=0.1, activation="relu",
+                 dim_feedforward=2048, relative_clip=4, use_wo=True, rezero=False, 
+                 gumbels=False, device=None, position_encoding=False,
+                 use_vocab_attn=False, use_pos_attn=False, max_sent_length=512):
+        super(TransformerEncoderLayer, self).__init__()
+        self.use_vocab_attn = use_vocab_attn
+        self.use_pos_attn = use_pos_attn
+        self.position_encoding = position_encoding
+        if self.use_vocab_attn:
+            self.vocab_attn_layer = ResidualBlock(
+                VocabularyAttention(d_src, gumbels=gumbels),
+                d_src, dropout, rezero=rezero)
+        if self.position_encoding:
+            self.position_encoding_layer = PositionalEncoding(
+                d_src, max_len=max_sent_length, device=device)
+
+        self.self_attn = ResidualBlock(
+            MultiHeadAttention(d_src, d_src, d_src, d_src, d_src, nhead,
+                               dropout=dropout, bias=True, gumbels=gumbels,
+                               max_relative_position=relative_clip, device=device,
+                               use_wo=use_wo),
+            d_src, dropout, rezero=rezero)
+
+        self.feedforward = HighwayBlock(
+            FeedForward(d_src, dim_feedforward),
+            d_src, dropout, rezero=rezero)
+
+    def forward(self, src, embedding=None, mask_src=None):
+        if self.use_vocab_attn and embedding is not None:
+            src = self.vocab_attn_layer(src, src, embedding)  # B x l_src x d_src
+        self_attn_out = self.self_attn(src, src, src, src, mask_src)
+        if self.position_encoding:
+            self_attn_out = self.position_encoding_layer(self_attn_out)
+        out = self.feedforward(self_attn_out, self_attn_out)
+        return out
+
+
+class TransformerEncoder(nn.Module):
+
+    def __init__(self, encoder_layer, nlayers=6, dropout=0.):
+        super(TransformerEncoder, self).__init__()
+        self.nlayers = nlayers
+        self.transformer_decoder = nn.ModuleList([
+            encoder_layer for i in range(nlayers)])
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, src, embedding=None, mask_src=None):
+        x = self.dropout(src)
+        xs = []
+        for layer in self.transformer_decoder:
+            x = layer(x, embedding, mask_src=mask_src)
+            xs.append(x)
+        return xs, x
+
+
 class TransformerDecoderLayer(nn.Module):
-    def __init__(self, embedding, d_tar, d_src, nhead, position_encoding=False,
+    def __init__(self, embedding, d_tar, d_src, nhead, gumbels=False, rezero=False,
                  dim_feedforward=2048, dropout=0.1, activation="relu",
-                 rezero=False, max_sent_length=512, relative_clip=4,
-                 gumbels=False, device=None):
+                 max_sent_length=512, relative_clip=4, device=None, use_wo=True,
+                 position_encoding=False, use_pos_attn=False, use_vocab_attn=False):
         super(TransformerDecoderLayer, self).__init__()
         self.position_encoding = position_encoding
-
+        self.use_pos_attn = use_pos_attn
+        self.use_vocab_attn = use_vocab_attn
         if position_encoding:
             self.position_encoding_layer = PositionalEncoding(d_tar, max_len=max_sent_length, device=device)
-
-        self.vocab_attn_layer = ResidualBlock(
-            VocabularyAttention(d_tar, gumbels=gumbels),
-            d_tar, dropout, rezero=rezero)
+        if use_vocab_attn:
+            self.vocab_attn_layer = ResidualBlock(
+                VocabularyAttention(d_tar, gumbels=gumbels),
+                d_tar, dropout, rezero=rezero)
 
         self.self_attn = ResidualBlock(
             MultiHeadAttention(d_tar, d_tar, d_tar, d_tar, d_tar, nhead,
                                dropout=dropout, bias=True, gumbels=gumbels,
-                               max_relative_position=relative_clip, device=device),
+                               max_relative_position=relative_clip, device=device,
+                               use_wo=use_wo),
             d_tar, dropout, rezero=rezero)
-
-        self.pos_selfattn = ResidualBlock(
-            MultiHeadAttention(d_tar, d_tar, d_tar, d_tar, d_tar, nhead,
-                               dropout=dropout, bias=True, gumbels=gumbels,
-                               max_relative_position=relative_clip, device=device),
-            d_tar, dropout, rezero=rezero)
+        if use_pos_attn:
+            self.pos_selfattn = ResidualBlock(
+                MultiHeadAttention(d_tar, d_tar, d_tar, d_tar, d_tar, nhead,
+                                   dropout=dropout, bias=True, gumbels=gumbels,
+                                   max_relative_position=relative_clip, device=device,
+                                   use_wo=use_wo),
+                d_tar, dropout, rezero=rezero)
 
         self.src_attn = ResidualBlock(
             MultiHeadAttention(d_tar, d_src, d_src, d_tar, d_tar, nhead,
                                dropout=dropout, bias=True, gumbels=gumbels,
-                               max_relative_position=relative_clip, device=device),
+                               max_relative_position=relative_clip, device=device,
+                               use_wo=use_wo),
             d_tar, dropout, rezero=rezero)
 
         self.d_tar = d_tar
@@ -312,16 +376,20 @@ class TransformerDecoderLayer(nn.Module):
             FeedForward(d_tar, dim_feedforward),
             d_tar, dropout, rezero=rezero)
 
-    def forward(self, tgt, src, embedding, mask_src=None, mask_tar=None):
-        tgt = self.vocab_attn_layer(tgt, tgt, embedding)  # B x l_tar x d_tar
-        tgt = self.self_attn(tgt, tgt, tgt, tgt, mask_tar)  # B x l_tar x d_tar
-        if self.position_encoding:
-            pos_emb = self.position_encoding_layer(tgt)
-            tgt = self.pos_selfattn(tgt, pos_emb, pos_emb, tgt, mask_tar)  # B x l_tar x d_tar
+    def forward(self, tgt, src, embedding=None, mask_src=None, mask_tar=None):
+        if self.use_vocab_attn and embedding is not None:
+            tgt = self.vocab_attn_layer(tgt, tgt, embedding)  # B x l_tar x d_tar
+        self_attn_out = self.self_attn(tgt, tgt, tgt, tgt, mask_tar)  # B x l_tar x d_tar
+        if self.position_encoding and self.use_pos_attn:
+            pos_encoding_out = self.position_encoding_layer(self_attn_out)
+            pos_attn_out = self.pos_selfattn(self_attn_out, pos_encoding_out, pos_encoding_out, self_attn_out, mask_tar)  # B x l_tar x d_tar
+            src_attn_out = self.src_attn(pos_attn_out, pos_attn_out, src, src, mask_src)  # B x l_tar x d_tar
+        elif self.use_pos_attn:
+            pos_attn_out = self.pos_selfattn(self_attn_out, self_attn_out, self_attn_out, self_attn_out, mask_tar)  # B x l_tar x d_tar
+            src_attn_out = self.src_attn(pos_attn_out, pos_attn_out, src, src, mask_src)  # B x l_tar x d_tar
         else:
-            tgt = self.pos_selfattn(tgt, tgt, tgt, tgt, mask_tar)  # B x l_tar x d_tar
-        tgt = self.src_attn(tgt, tgt, src, src, mask_src)  # B x l_tar x d_tar
-        out = self.feedforward(tgt, tgt)  # B x l_tar x d_tar
+            src_attn_out = self.src_attn(self_attn_out, self_attn_out, src, src, mask_tar)  # B x l_tar x d_tar
+        out = self.feedforward(src_attn_out, src_attn_out)  # B x l_tar x d_tar
         return out  # B x l_tar x d_tar
 
 
@@ -333,10 +401,10 @@ class TransformerDecoder(nn.Module):
             decoder_layer for i in range(nlayers)])
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, tgt, src, embedding, src_length=None, tar_length=None, mask_src=None, mask_tar=None):
+    def forward(self, tgt, src, embedding=None, src_length=None, tar_length=None, mask_src=None, mask_tar=None):
         x = self.dropout(tgt)
         xs = []
         for layer in self.transformer_decoder:
             x = layer(x, src, embedding, mask_src=mask_src, mask_tar=mask_tar)
             xs.append(x)
-        return xs
+        return xs, x
