@@ -1,9 +1,20 @@
 import sys
+import os
+import numpy as np
+import random
 from inspect import signature
 from functools import wraps
 
 import torch
-from torch.nn.utils.rnn import pad_sequence
+from torch import nn
+
+
+def init_seed(manual_seed):
+    random.seed(manual_seed)
+    torch.manual_seed(manual_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(manual_seed)
+    print(f'manual seed: {manual_seed}')
 
 
 class PadCollate(object):
@@ -11,7 +22,6 @@ class PadCollate(object):
     a variant of callate_fn that pads according to the longest sequence in
     a batch of sequences
     """
-
     def __init__(self, dim=0, pad_id=0, device=None):
         """
         args:
@@ -30,6 +40,7 @@ class PadCollate(object):
             ys - a LongTensor of all tgts in batch after padding
         """
         # find longest sequence
+        from torch.nn.utils.rnn import pad_sequence
         src_lens = torch.LongTensor([item[0].shape[0] for item in batch]).to(self.device)
         tgt_lens = torch.LongTensor([item[1].shape[0] for item in batch]).to(self.device)
         srcs = pad_sequence([item[0] for item in batch], batch_first=True, padding_value=self.pad_id).to(self.device)
@@ -78,7 +89,7 @@ def summary(model, file=sys.stderr, type_size=4):  # float32
     string, count = repr(model)
     if file is not None:
         print(string, file=file)
-        print('memory use ~ {:4f}MiB', count * type_size * 2 / 1000 / 1000)
+        print(f'memory use ~ {(20 * count * type_size * 2 / 1000 / 1000):4f}MiB')
     return count
 
 
@@ -97,3 +108,52 @@ def typeassert(*type_args, **type_kwargs):
             return func(*args, **kwargs)
         return wrapper
     return decorate
+
+
+def get_index(alist, idx):
+    try:
+        rank = alist.index(idx)
+    except ValueError:
+        rank = -1
+    return rank
+
+
+def generate_triu_mask(src_len, tgt_len, device=None):
+    r"""Generate a square mask for the sequence. 
+        masked positions are filled with bool(0).
+    """
+    mask = torch.BoolTensor(
+        torch.triu(torch.ones(src_len, tgt_len)) == 1).to(device)
+    return mask.transpose(0, 1)
+
+
+def generate_key_padding_mask(max_len, lengths):
+    '''
+    key is padded with bool(0)
+    '''
+    mask = torch.BoolTensor(
+        (np.expand_dims(np.arange(max_len), 1)\
+         < np.expand_dims(lengths.cpu().numpy(), 0))).to(lengths.device)
+    return mask.transpose(0, 1)
+
+
+def load_model_state_dict(model, ckpt_name, device):
+    if os.path.isfile(ckpt_name + ".ckpt"):
+        print(f'loading model from {ckpt_name}...')
+        model.load_state_dict(
+            torch.load(ckpt_name + ".ckpt", map_location=device),
+            strict=False)
+    else:
+        print('Checkpoint not found! Model remain unchanged!')
+    return model
+
+
+def restore_state_at_step(model, ckpt_name, device, save_dir='./save'):
+    ckpt_name = os.path.join(os.path.join(save_dir, ckpt_name), ckpt_name)
+    return load_model_state_dict(model, ckpt_name, device)
+
+
+def restore_best_state(model, ckpt_name, device, save_dir='./save'):
+    ckpt_name = os.path.join(os.path.join(save_dir, ckpt_name), ckpt_name) + '_best'
+    # ckpt_name = os.path.join(save_dir, ckpt_name) + '_best'
+    return load_model_state_dict(model, ckpt_name, device)

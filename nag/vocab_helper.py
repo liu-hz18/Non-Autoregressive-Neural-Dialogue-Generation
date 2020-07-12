@@ -5,7 +5,7 @@ from nltk.tokenize import word_tokenize
 
 PAD_TOKEN = '<pad>'
 UNK_TOKEN = '<unk>'
-SOS_TOKEN = '<sos>'
+BOS_TOKEN = '<bos>'
 EOS_TOKEN = '<eos>'
 
 
@@ -23,7 +23,7 @@ class VocabBulider(object):
             self.id2vocab = []
             self._read_vocab(self.vocab_file)
         else:
-            self.id2vocab = [PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN]
+            self.id2vocab = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
             self._build_vocab()
         self.start_id = len(self.id2vocab)
         self.padid = self.id2vocab.index(PAD_TOKEN)
@@ -61,6 +61,9 @@ class VocabBulider(object):
     def most_common(self, rank):
         return self.id2vocab[:rank]
 
+    def id_to_word(self, idx):
+        return self.id2vocab[idx]
+
     def __len__(self):
         return len(self.id2vocab)
 
@@ -72,6 +75,3 @@ class VocabBulider(object):
             if self.ignore_unk_error == False:
                 raise KeyError(f'word {word} not in word_list!')
         return idx
-
-    def id_to_word(self, idx):
-        return self.id2word[idx]
